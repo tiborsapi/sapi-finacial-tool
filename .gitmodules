@@ -1,0 +1,9 @@
+[submodule "arhitecture"]
+	path = arhitecture
+	url = git@github.com:tiborsapi/sapi-finacial-tool-arhitecture.git
+[submodule "frontend"]
+	path = frontend
+	url = git@github.com:tiborsapi/sapi-finacial-tool-fe.git
+[submodule "backend"]
+	path = backend
+	url = git@github.com:tiborsapi/sapi-finacial-tool-be.git
