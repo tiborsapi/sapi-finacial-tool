@@ -1,0 +1,16 @@
+{
+  "name": "finance-management-e2e",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Gherkin end-to-end tests for Finance Management",
+  "scripts": {
+    "test": "cucumber-js",
+    "test:income": "cucumber-js features/income.feature",
+    "test:dry-run": "cucumber-js --dry-run"
+  },
+  "devDependencies": {
+    "@cucumber/cucumber": "^11.3.0",
+    "@playwright/test": "^1.55.0",
+    "pg": "^8.16.0"
+  }
+}

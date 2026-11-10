@@ -1,0 +1,66 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: finance_db
+      POSTGRES_USER: finance
+      POSTGRES_PASSWORD: finance_dev_password
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U finance -d finance_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    image: finance-management-backend:dev
+    build:
+      context: .
+      dockerfile: docker/backend/Dockerfile.dev
+    environment:
+      DATABASE_URL: postgres://finance:finance_dev_password@db:5432/finance_db
+      PORT: "8080"
+      RUST_LOG: info
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./backend:/app
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-target:/app/target
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    image: finance-management-frontend:dev
+    build:
+      context: .
+      dockerfile: docker/frontend/Dockerfile.dev
+    ports:
+      - "127.0.0.1:5173:5173"
+    environment:
+      VITE_API_PROXY_TARGET: http://backend:8080
+    volumes:
+      - ./frontend:/app
+      - frontend-node-modules:/app/node_modules
+    depends_on:
+      - backend
+
+  proxy:
+    image: nginx:alpine
+    ports:
+      - "127.0.0.1:8081:80"
+    volumes:
+      - ./docker/proxy/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - backend
+      - frontend
+
+volumes:
+  cargo-registry:
+  cargo-target:
+  frontend-node-modules:
+  postgres-data:

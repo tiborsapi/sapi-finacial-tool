@@ -1,0 +1,8 @@
+.git
+**/.git
+backend/target
+frontend/node_modules
+frontend/dist
+e2e/node_modules
+e2e/reports
+**/*.log
