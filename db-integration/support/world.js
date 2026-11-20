@@ -11,12 +11,14 @@ const defaultDatabaseUrl = 'postgres://finance:finance_dev_password@localhost:54
 
 setDefaultTimeout(15_000);
 
+const TABLES = ['incomes', 'expenses'];
+
 class DatabaseWorld {
   constructor() {
     this.databaseUrl = process.env.DB_TEST_DATABASE_URL || defaultDatabaseUrl;
     this.sourcePrefix = `dbbdd-${randomUUID()}`;
-    this.incomeIds = new Map();
-    this.incomeData = new Map();
+    this.recordIds = new Map();
+    this.recordData = new Map();
   }
 
   sourceFor(alias) {
@@ -30,11 +32,13 @@ Before(async function () {
   this.database = new Client({ connectionString: this.databaseUrl });
   try {
     await this.database.connect();
-    await this.database.query('SELECT 1 FROM public.incomes LIMIT 0');
+    for (const table of TABLES) {
+      await this.database.query(`SELECT 1 FROM public.${table} LIMIT 0`);
+    }
   } catch (error) {
     await this.database.end().catch(() => {});
     throw new Error(
-      `Unable to access the migrated PostgreSQL incomes table. Check DB_TEST_DATABASE_URL and start the backend to apply migrations: ${error.message}`,
+      `Unable to access the migrated PostgreSQL incomes and expenses tables. Check DB_TEST_DATABASE_URL and start the backend to apply migrations: ${error.message}`,
       { cause: error },
     );
   }
@@ -45,15 +49,17 @@ After(async function () {
 
   let cleanupError;
   try {
-    await this.database.query('DELETE FROM public.incomes WHERE source LIKE $1', [
-      `${this.sourcePrefix}-%`,
-    ]);
-    const remaining = await this.database.query(
-      'SELECT COUNT(*)::int AS count FROM public.incomes WHERE source LIKE $1',
-      [`${this.sourcePrefix}-%`],
-    );
-    if (remaining.rows[0].count !== 0) {
-      throw new Error(`Database BDD cleanup left ${remaining.rows[0].count} test rows`);
+    for (const table of TABLES) {
+      await this.database.query(`DELETE FROM public.${table} WHERE source LIKE $1`, [
+        `${this.sourcePrefix}-%`,
+      ]);
+      const remaining = await this.database.query(
+        `SELECT COUNT(*)::int AS count FROM public.${table} WHERE source LIKE $1`,
+        [`${this.sourcePrefix}-%`],
+      );
+      if (remaining.rows[0].count !== 0) {
+        throw new Error(`Database BDD cleanup left ${remaining.rows[0].count} test rows in ${table}`);
+      }
     }
   } catch (error) {
     cleanupError = error;

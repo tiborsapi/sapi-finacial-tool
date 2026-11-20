@@ -27,24 +27,25 @@ async function dockerAvailable() {
 
 setDefaultTimeout(30_000);
 
-class IncomeWorld {
+class FinanceWorld {
   constructor() {
     this.baseUrl = process.env.E2E_BASE_URL || 'http://localhost:8081';
     this.databaseUrl =
       process.env.E2E_DATABASE_URL ||
       'postgres://finance:finance_dev_password@localhost:5433/finance_db';
     this.sourcePrefix = `bdd-${randomUUID()}`;
-    this.incomeIds = new Map();
-    this.incomeAmounts = new Map();
+    this.recordIds = new Map();
+    this.amounts = new Map();
   }
 
   sourceFor(alias) {
     return `${this.sourcePrefix}-${alias}`;
   }
 
-  async findIncome(alias) {
+  /** `table` is a trusted constant ('incomes' or 'expenses'), never user input. */
+  async findRecord(table, alias) {
     const result = await this.database.query(
-      'SELECT id, amount_cents, source, category, description, received_on FROM incomes WHERE source = $1',
+      `SELECT id, amount_cents, source, category, description, received_on FROM ${table} WHERE source = $1`,
       [this.sourceFor(alias)],
     );
     return result.rows[0];
@@ -61,7 +62,7 @@ class IncomeWorld {
   }
 }
 
-setWorldConstructor(IncomeWorld);
+setWorldConstructor(FinanceWorld);
 
 Before(async function () {
   this.dockerAvailable = await dockerAvailable();
@@ -69,6 +70,7 @@ Before(async function () {
   const database = new Client({ connectionString: this.databaseUrl });
   await database.connect();
   await database.query('SELECT 1 FROM incomes LIMIT 0');
+  await database.query('SELECT 1 FROM expenses LIMIT 0');
   this.database = database;
   this.context = await browser.newContext();
   this.page = await this.context.newPage();
@@ -78,9 +80,11 @@ After(async function () {
   let cleanupError;
   if (this.database) {
     try {
-      await this.database.query('DELETE FROM incomes WHERE source LIKE $1', [
-        `${this.sourcePrefix}-%`,
-      ]);
+      for (const table of ['incomes', 'expenses']) {
+        await this.database.query(`DELETE FROM ${table} WHERE source LIKE $1`, [
+          `${this.sourcePrefix}-%`,
+        ]);
+      }
     } catch (error) {
       cleanupError = error;
     } finally {

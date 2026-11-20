@@ -37,6 +37,8 @@ The local database is available on port `5433` with database `finance_db`, user 
 
 The API is available under `/api/incomes`: `GET` lists records (with `q`, `category`, `from`, `to`, `page`, `per_page`, `sort_by`, and `sort_order` query parameters); `POST` creates; `GET /api/incomes/:id` reads one; `PUT` updates; and `DELETE` removes a record. Use `amount_cents` in request bodies to avoid floating-point rounding.
 
+Expenses work the same way under `/api/expenses` (same fields, query parameters and responses) and are shown on the Expenses page at <http://localhost:8081/expenses>. The two kinds are stored in separate tables (`incomes`, `expenses`) and have separate category lists: income uses Salary, Freelance, Investments, Business and Other; expenses use Rent, Food, Transport, Utilities, Health and Other. The backend logs `income_*` and `expense_*` audit events. Expenses reuse the income field names `source` (who or what was paid) and `received_on` (the date of the expense).
+
 Stop the containers with `./scripts/dev.ps1 down` on PowerShell or `./scripts/dev.sh down` on macOS/Linux. To follow logs, use the `logs` action. The PostgreSQL data volume is retained when containers stop; remove it only when you want to reset local development data:
 
 ```sh
@@ -80,11 +82,24 @@ npm ci
 npm test
 ```
 
-The backend tests cover income input normalization and validation, listing filter and pagination constraints, sort-field allowlisting, and API error status mapping. The frontend tests exercise create/edit/delete UI flows, amount validation, and search, category/date filtering, sorting, and pagination using a mocked API. Use the E2E suite below to test the integrated application against PostgreSQL and a real browser.
+The backend tests cover input normalization and validation, listing filter and pagination constraints, sort-field allowlisting, and API error status mapping, for both incomes and expenses.
+
+The backend also has HTTP-level API tests that run the real router against PostgreSQL (CRUD, filters, sorting, pagination, validation errors, SQL-injection input, and isolation between incomes and expenses). Each test gets its own throwaway database, so they need a PostgreSQL server where `DATABASE_URL` can create databases, and are marked `#[ignore]` so plain `cargo test` still needs no database. With the Compose stack running:
+
+```sh
+docker compose exec backend cargo test -- --include-ignored
+```
+
+or, from the host:
+
+```sh
+DATABASE_URL=postgres://finance:finance_dev_password@localhost:5433/finance_db \
+  cargo test --manifest-path backend/Cargo.toml -- --include-ignored
+``` The frontend tests exercise create/edit/delete UI flows, amount validation, and search, category/date filtering, sorting, and pagination using a mocked API. Use the E2E suite below to test the integrated application against PostgreSQL and a real browser.
 
 ## PostgreSQL database integration tests
 
-The `db-integration` suite uses Cucumber/Gherkin and connects directly to PostgreSQL. It verifies the migrated income table, its constraints and indexes, persisted insert/update/delete behavior, and rejection of non-positive amounts. Tests insert records with unique `dbbdd-*` source prefixes and remove only those records during cleanup.
+The `db-integration` suite uses Cucumber/Gherkin and connects directly to PostgreSQL. It verifies the migrated income and expense tables, their constraints and indexes, rejection of non-positive amounts, and rejection of missing required fields. Persistence behaviour (create, update, delete, listing, and re-applying the migrations) is covered by the backend API tests, which run against PostgreSQL. Tests insert records with unique `dbbdd-*` source prefixes and remove only those records during cleanup.
 
 Start the backend and its database from the repository root in one terminal. Backend startup applies the database migration:
 
@@ -109,6 +124,16 @@ Remove-Item Env:DB_TEST_DATABASE_URL
 ```
 
 The selected database must already have the backend migration applied. Use a disposable or dedicated test database; do not point this suite at production.
+
+## Performance test
+
+A k6 latency test measures p50/p95/p99 for every income and expense endpoint at 1k, 10k and 100k rows per table, against an optimised backend and a separate `finance_perf` database (your development data is not touched):
+
+```sh
+./perf/run.sh
+```
+
+It needs Docker and builds a release-mode backend image on the first run. See [perf/README.md](./perf/README.md) for what is measured, the baseline numbers, how to clean up, and how it runs in CI (a small smoke run on every push, the full run nightly).
 
 ## Gherkin end-to-end tests
 
@@ -184,4 +209,4 @@ Use headed mode when you want to watch the browser interactions while the tests 
 The defaults expect the app at `http://localhost:8081` and the development database at `postgresql://finance:finance_dev_password@localhost:5433/finance_db`.
 Override these with `E2E_BASE_URL` and `E2E_DATABASE_URL` when using a dedicated test stack/database. Scenarios create uniquely prefixed `bdd-*` records and remove only those records during cleanup. Run against a disposable or dedicated test database, not production. Backend log assertions read `docker compose logs backend`, so run the test command from this repository's `e2e` directory while the Compose stack is available.
 
-The Gherkin scenarios are in [e2e/features/income.feature](./e2e/features/income.feature); their Playwright, PostgreSQL, and Docker log steps are in [e2e/features/step_definitions/income.steps.js](./e2e/features/step_definitions/income.steps.js).
+The Gherkin scenarios are in [e2e/features/income.feature](./e2e/features/income.feature), [e2e/features/expense.feature](./e2e/features/expense.feature), and [e2e/features/categories.feature](./e2e/features/categories.feature) (which checks that every category the forms offer is accepted by the API); their Playwright, PostgreSQL, and Docker log steps are in [e2e/features/step_definitions/records.steps.js](./e2e/features/step_definitions/records.steps.js). The audit-log steps are reported as skipped when Docker is not available.

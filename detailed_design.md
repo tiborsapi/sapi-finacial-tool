@@ -20,11 +20,11 @@ The design follows the architecture described in the project requirements and ar
 - Persist records in PostgreSQL
 - Validate incoming API payloads
 - Log create, update, and delete audit events
+- Create, edit, delete, search, filter, sort, and paginate expense records (separate `expenses` table and `/api/expenses` routes sharing the income validation and listing code)
 
 ### Outside the current implementation
 
 - authentication and user accounts
-- expense tracking
 - invoice management
 - multi-user access control
 - monthly financial summary beyond the income dashboard

@@ -59,6 +59,35 @@ services:
       - backend
       - frontend
 
+  # --- Performance testing (only started with `--profile perf`; see perf/README.md) ---
+  # Optimised backend on its own database, so seeding 100k rows never touches dev data.
+  backend-release:
+    profiles: ["perf"]
+    image: finance-management-backend:release
+    build:
+      context: .
+      dockerfile: docker/backend/Dockerfile
+    environment:
+      DATABASE_URL: postgres://finance:finance_dev_password@db:5432/finance_perf
+      PORT: "8080"
+      RUST_LOG: warn
+    ports:
+      - "127.0.0.1:8090:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  k6:
+    profiles: ["perf"]
+    image: grafana/k6:0.54.0
+    environment:
+      BASE_URL: http://backend-release:8080
+    volumes:
+      - ./perf:/perf:ro
+      - ./perf/results:/results
+    depends_on:
+      - backend-release
+
 volumes:
   cargo-registry:
   cargo-target:

@@ -37,3 +37,13 @@ Feature: Income tracking
     Then the first income amount is "$9.00"
     When I set the income date range from "2026-01-03" to "2026-01-06"
     Then 4 matching income records are found
+
+  Scenario: An income survives a page reload
+    Given I add a "freelance-gig" income of "300.00" in category "Freelance"
+    When I reload the page
+    Then the "freelance-gig" income is still displayed
+
+  Scenario: The form rejects an invalid amount without saving anything
+    When I try to add a "bad-amount" income of "1.234"
+    Then the form shows the message "Enter an amount greater than zero with up to two decimal places."
+    And the "bad-amount" income is absent from the database

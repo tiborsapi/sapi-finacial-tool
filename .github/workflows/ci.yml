@@ -16,6 +16,23 @@ jobs:
   backend:
     name: Backend checks
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: finance_db
+          POSTGRES_USER: finance
+          POSTGRES_PASSWORD: finance_dev_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U finance -d finance_db"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # The API integration tests (#[ignore]d locally) create a throwaway database each.
+      DATABASE_URL: postgres://finance:finance_dev_password@localhost:5432/finance_db
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -38,8 +55,8 @@ jobs:
       - name: Run Clippy
         run: cargo clippy --manifest-path backend/Cargo.toml --all-targets --all-features -- -D warnings
 
-      - name: Run backend tests
-        run: cargo test --manifest-path backend/Cargo.toml --all-targets
+      - name: Run backend tests (unit and PostgreSQL-backed API tests)
+        run: cargo test --manifest-path backend/Cargo.toml --all-targets -- --include-ignored
 
       - name: Build release backend
         run: cargo build --manifest-path backend/Cargo.toml --release
@@ -108,19 +125,22 @@ jobs:
         working-directory: db-integration
         run: npm ci
 
-      - name: Apply the project database migration
+      - name: Apply the project database migrations
         working-directory: db-integration
         run: |
           node <<'NODE'
-          const { readFile } = require('node:fs/promises');
+          const { readdir, readFile } = require('node:fs/promises');
           const { Client } = require('pg');
 
           async function main() {
             const client = new Client({ connectionString: process.env.DB_TEST_DATABASE_URL });
             await client.connect();
             try {
-              const migration = await readFile('../backend/migrations/0001_create_incomes.sql', 'utf8');
-              await client.query(migration);
+              const directory = '../backend/migrations';
+              const scripts = (await readdir(directory)).filter((name) => name.endsWith('.sql')).sort();
+              for (const script of scripts) {
+                await client.query(await readFile(`${directory}/${script}`, 'utf8'));
+              }
             } finally {
               await client.end();
             }
@@ -188,3 +208,11 @@ jobs:
       - name: Stop the application stack
         if: always()
         run: docker compose down --volumes --remove-orphans
+
+  performance-smoke:
+    name: Performance smoke test
+    uses: ./.github/workflows/performance.yml
+    with:
+      rows: "10000"
+      p95_ms: "100"
+      iterations: "50"

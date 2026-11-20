@@ -1,0 +1,108 @@
+name: Performance
+
+# Single-user latency test (k6) against an optimised backend and a seeded PostgreSQL.
+#  - ci.yml calls this with a small data set on every push (a smoke test for gross regressions).
+#  - Nightly and on demand it runs with a large data set, which is the one worth comparing.
+on:
+  workflow_call:
+    inputs:
+      rows:
+        type: string
+        default: "10000"
+      p95_ms:
+        type: string
+        default: "100"
+      iterations:
+        type: string
+        default: "50"
+  workflow_dispatch:
+    inputs:
+      rows:
+        description: Rows seeded per table
+        default: "100000"
+      p95_ms:
+        description: p95 limit per endpoint, milliseconds
+        default: "500"
+      iterations:
+        description: Iterations (each calls every endpoint once)
+        default: "100"
+  schedule:
+    - cron: "0 3 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  performance:
+    name: Performance (${{ inputs.rows || '100000' }} rows)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: finance_perf
+          POSTGRES_USER: finance
+          POSTGRES_PASSWORD: finance_dev_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U finance -d finance_perf"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      ROWS: ${{ inputs.rows || '100000' }}
+      P95_MS: ${{ inputs.p95_ms || '500' }}
+      ITER: ${{ inputs.iterations || '100' }}
+      DATABASE_URL: postgres://finance:finance_dev_password@localhost:5432/finance_perf
+      PGPASSWORD: finance_dev_password
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend
+
+      - name: Build release backend
+        run: cargo build --manifest-path backend/Cargo.toml --release
+
+      - name: Start the backend
+        run: |
+          PORT=8080 RUST_LOG=warn backend/target/release/finance_management_backend > backend.log 2>&1 &
+          for attempt in {1..30}; do
+            curl --fail --silent http://localhost:8080/health > /dev/null && exit 0
+            sleep 1
+          done
+          cat backend.log
+          exit 1
+
+      - name: Seed the database
+        run: psql --host localhost --username finance --dbname finance_perf -v rows="$ROWS" -f perf/seed.sql
+
+      - name: Run the performance test
+        run: |
+          mkdir -p perf/results && chmod a+w perf/results
+          docker run --rm --network host \
+            -v "$PWD/perf:/perf:ro" -v "$PWD/perf/results:/results" \
+            -e BASE_URL=http://localhost:8080 -e ROWS -e ITER -e P95_MS \
+            grafana/k6:0.54.0 run /perf/perf.js
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-${{ env.ROWS }}-rows
+          path: perf/results/
+          if-no-files-found: ignore
+
+      - name: Show backend log on failure
+        if: failure()
+        run: cat backend.log
